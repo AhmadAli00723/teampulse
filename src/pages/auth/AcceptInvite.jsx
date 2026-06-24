@@ -42,6 +42,8 @@ export default function AcceptInvite() {
       setAccepting(false)
       return
     }
+    // Clear the stored token — no longer needed
+    localStorage.removeItem('pendingInviteToken')
     // Reload org/membership into context BEFORE navigating so ProtectedRoute passes
     await refreshOrg()
     // Send managers/admins to the dashboard, members to their survey

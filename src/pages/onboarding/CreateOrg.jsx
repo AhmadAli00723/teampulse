@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TrendingUp, Building2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -12,12 +12,18 @@ function toSlug(str) {
 export default function CreateOrg() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { refreshOrg } = useOrg()
+  const { membership, refreshOrg } = useOrg()
 
   const [name, setName]       = useState('')
   const [slug, setSlug]       = useState('')
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
+
+  // If user already has a membership (e.g. previously created org or accepted invite),
+  // send them to the dashboard immediately — they should not be here
+  useEffect(() => {
+    if (membership) navigate('/dashboard', { replace: true })
+  }, [membership])
 
   function handleNameChange(e) {
     const val = e.target.value
@@ -35,7 +41,17 @@ export default function CreateOrg() {
       .rpc('create_organization', { p_name: name, p_slug: slug })
 
     setLoading(false)
-    if (rpcErr) { setError(rpcErr.message); return }
+
+    if (rpcErr) {
+      // Duplicate slug — org was already created (e.g. double-submit or previous session)
+      if (rpcErr.message?.includes('unique constraint') || rpcErr.message?.includes('duplicate')) {
+        setError('An organization with this slug already exists. Try a different name or add a number — e.g. "nindatech-2".')
+      } else {
+        setError(rpcErr.message)
+      }
+      return
+    }
+
     if (!orgId) { setError('Failed to create organization.'); return }
     await refreshOrg()
     navigate('/dashboard')

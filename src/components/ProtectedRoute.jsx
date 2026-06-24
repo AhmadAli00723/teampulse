@@ -15,7 +15,13 @@ export default function ProtectedRoute({ children, requiredRole }) {
   }
 
   if (!user) return <Navigate to="/login" replace />
-  if (!membership) return <Navigate to="/onboarding" replace />
+
+  if (!membership) {
+    // User confirmed their email from an invite — token was saved in localStorage
+    const pendingToken = localStorage.getItem('pendingInviteToken')
+    if (pendingToken) return <Navigate to={`/accept-invite?token=${pendingToken}`} replace />
+    return <Navigate to="/onboarding" replace />
+  }
 
   if (requiredRole) {
     const hierarchy = { admin: 3, manager: 2, member: 1 }

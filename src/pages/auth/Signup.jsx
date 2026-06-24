@@ -31,6 +31,8 @@ export default function Signup() {
 
     if (!data.session) {
       // Supabase requires email confirmation before session is issued
+      // Save the invite token to localStorage so it survives the confirmation redirect
+      if (token) localStorage.setItem('pendingInviteToken', token)
       setNeedsConfirm(true)
       return
     }
