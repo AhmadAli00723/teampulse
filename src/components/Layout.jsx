@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, ClipboardList, MessageSquare, Heart,
   BarChart2, Users, Target, FileText, Settings, LogOut,
-  TrendingUp,
+  TrendingUp, UserPlus,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useOrg } from '../hooks/useOrg'
@@ -16,8 +16,9 @@ const NAV = [
   { to: '/polls',          label: 'Polls',         icon: BarChart2,       roles: ['member','manager','admin'] },
   { to: '/1on1s',          label: '1-on-1s',       icon: Users,           roles: ['member','manager','admin'] },
   { to: '/goals',          label: 'Goals',         icon: Target,          roles: ['member','manager','admin'] },
-  { to: '/reports',        label: 'Reports',       icon: FileText,        roles: ['admin','manager'] },
-  { to: '/settings',       label: 'Settings',      icon: Settings,        roles: ['admin','manager','admin'] },
+  { to: '/reports',          label: 'Reports',       icon: FileText,  roles: ['admin','manager'] },
+  { to: '/settings/members', label: 'Members',       icon: UserPlus,  roles: ['admin'] },
+  { to: '/settings',         label: 'Settings',      icon: Settings,  roles: ['admin'] },
 ]
 
 export default function Layout({ children }) {
