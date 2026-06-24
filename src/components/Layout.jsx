@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, ClipboardList, MessageSquare, Heart,
   BarChart2, Users, Target, FileText, Settings, LogOut,
-  TrendingUp, UserPlus,
+  TrendingUp, UserPlus, Sliders,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useOrg } from '../hooks/useOrg'
@@ -10,7 +10,7 @@ import { useAuth } from '../hooks/useAuth'
 
 const NAV = [
   { to: '/dashboard',        label: 'Dashboard',        icon: LayoutDashboard,   roles: ['admin','manager'] },
-  { to: '/settings/surveys', label: 'Survey Settings',  icon: SlidersHorizontal, roles: ['admin','manager'] },
+  { to: '/settings/surveys', label: 'Survey Settings',  icon: Sliders,           roles: ['admin','manager'] },
   { to: '/surveys/answer',   label: 'My Survey',        icon: ClipboardList,     roles: ['member','manager','admin'] },
   { to: '/feedback',         label: 'Feedback',         icon: MessageSquare,     roles: ['member','manager','admin'] },
   { to: '/recognition',      label: 'Recognition',      icon: Heart,             roles: ['member','manager','admin'] },
