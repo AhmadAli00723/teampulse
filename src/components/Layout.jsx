@@ -9,16 +9,17 @@ import { useOrg } from '../hooks/useOrg'
 import { useAuth } from '../hooks/useAuth'
 
 const NAV = [
-  { to: '/dashboard',      label: 'Dashboard',    icon: LayoutDashboard, roles: ['admin','manager'] },
-  { to: '/surveys/answer', label: 'My Survey',     icon: ClipboardList,   roles: ['member','manager','admin'] },
-  { to: '/feedback',       label: 'Feedback',      icon: MessageSquare,   roles: ['member','manager','admin'] },
-  { to: '/recognition',    label: 'Recognition',   icon: Heart,           roles: ['member','manager','admin'] },
-  { to: '/polls',          label: 'Polls',         icon: BarChart2,       roles: ['member','manager','admin'] },
-  { to: '/1on1s',          label: '1-on-1s',       icon: Users,           roles: ['member','manager','admin'] },
-  { to: '/goals',          label: 'Goals',         icon: Target,          roles: ['member','manager','admin'] },
-  { to: '/reports',          label: 'Reports',       icon: FileText,  roles: ['admin','manager'] },
-  { to: '/settings/members', label: 'Members',       icon: UserPlus,  roles: ['admin'] },
-  { to: '/settings',         label: 'Settings',      icon: Settings,  roles: ['admin'] },
+  { to: '/dashboard',        label: 'Dashboard',        icon: LayoutDashboard,   roles: ['admin','manager'] },
+  { to: '/settings/surveys', label: 'Survey Settings',  icon: SlidersHorizontal, roles: ['admin','manager'] },
+  { to: '/surveys/answer',   label: 'My Survey',        icon: ClipboardList,     roles: ['member','manager','admin'] },
+  { to: '/feedback',         label: 'Feedback',         icon: MessageSquare,     roles: ['member','manager','admin'] },
+  { to: '/recognition',      label: 'Recognition',      icon: Heart,             roles: ['member','manager','admin'] },
+  { to: '/polls',            label: 'Polls',            icon: BarChart2,         roles: ['member','manager','admin'] },
+  { to: '/1on1s',            label: '1-on-1s',          icon: Users,             roles: ['member','manager','admin'] },
+  { to: '/goals',            label: 'Goals',            icon: Target,            roles: ['member','manager','admin'] },
+  { to: '/reports',          label: 'Reports',          icon: FileText,          roles: ['admin','manager'] },
+  { to: '/settings/members', label: 'Members',          icon: UserPlus,          roles: ['admin'] },
+  { to: '/settings',         label: 'Org Settings',     icon: Settings,          roles: ['admin'] },
 ]
 
 export default function Layout({ children }) {

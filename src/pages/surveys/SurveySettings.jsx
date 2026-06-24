@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Send, Calendar, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useOrg } from '../../hooks/useOrg'
 import { ENGAGEMENT_METRICS, CADENCE_OPTIONS } from '../../lib/constants'
@@ -7,12 +8,15 @@ import Spinner from '../../components/ui/Spinner'
 
 export default function SurveySettings() {
   const { org } = useOrg()
-  const [cycle, setCycle]     = useState(null)
-  const [cadence, setCadence] = useState('weekly')
-  const [metrics, setMetrics] = useState(ENGAGEMENT_METRICS.map(m => m.id))
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving]   = useState(false)
-  const [saved, setSaved]     = useState(false)
+  const [cycle, setCycle]       = useState(null)
+  const [cadence, setCadence]   = useState('weekly')
+  const [metrics, setMetrics]   = useState(ENGAGEMENT_METRICS.map(m => m.id))
+  const [nextSend, setNextSend] = useState('')
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
+  const [saved, setSaved]       = useState(false)
+  const [sending, setSending]   = useState(false)
+  const [sendResult, setSendResult] = useState(null)
 
   useEffect(() => {
     if (!org) return
@@ -27,30 +31,26 @@ export default function SurveySettings() {
           setCycle(data)
           setCadence(data.cadence)
           setMetrics(data.metrics?.length ? data.metrics : ENGAGEMENT_METRICS.map(m => m.id))
+          setNextSend(data.next_send ?? '')
         }
         setLoading(false)
       })
   }, [org])
 
   function toggleMetric(id) {
-    setMetrics(prev =>
-      prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
-    )
+    setMetrics(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id])
   }
 
   async function save() {
     setSaving(true)
+    const payload = { cadence, metrics, active: true, next_send: nextSend || null }
     if (cycle) {
-      await supabase
-        .from('survey_cycles')
-        .update({ cadence, metrics })
-        .eq('id', cycle.id)
+      await supabase.from('survey_cycles').update(payload).eq('id', cycle.id)
     } else {
       const { data } = await supabase
         .from('survey_cycles')
-        .insert({ org_id: org.id, cadence, metrics, active: true })
-        .select()
-        .single()
+        .insert({ org_id: org.id, ...payload })
+        .select().single()
       setCycle(data)
     }
     setSaving(false)
@@ -58,14 +58,35 @@ export default function SurveySettings() {
     setTimeout(() => setSaved(false), 2000)
   }
 
+  async function sendNow() {
+    setSending(true)
+    setSendResult(null)
+    const { data, error } = await supabase.functions.invoke('send-surveys', {
+      body: { org_id: org.id, force: true },
+    })
+    setSending(false)
+    if (error) {
+      setSendResult({ ok: false, error: error.message })
+    } else {
+      setSendResult(data)
+      // Refresh cycle to get updated next_send / last_sent from the server
+      supabase.from('survey_cycles').select('*')
+        .eq('org_id', org.id).is('team_id', null).maybeSingle()
+        .then(({ data: c }) => { if (c) { setCycle(c); setNextSend(c.next_send ?? '') } })
+    }
+  }
+
   if (loading) return <Layout><div className="flex items-center justify-center h-64"><Spinner /></div></Layout>
+
+  const lastSent = cycle?.last_sent
 
   return (
     <Layout>
       <div className="p-8 max-w-2xl">
         <h1 className="text-2xl font-bold text-gray-900 mb-1">Survey Settings</h1>
-        <p className="text-sm text-gray-500 mb-8">Configure your pulse survey cadence and which metrics to track.</p>
+        <p className="text-sm text-gray-500 mb-8">Configure pulse survey cadence, metrics and delivery schedule.</p>
 
+        {/* ── Cadence ── */}
         <div className="card mb-6">
           <h2 className="text-sm font-semibold text-gray-800 mb-4">Survey Cadence</h2>
           <div className="flex gap-3">
@@ -83,6 +104,7 @@ export default function SurveySettings() {
           </div>
         </div>
 
+        {/* ── Metrics ── */}
         <div className="card mb-6">
           <h2 className="text-sm font-semibold text-gray-800 mb-4">
             Active Metrics <span className="text-gray-400 font-normal">({metrics.length} selected)</span>
@@ -107,9 +129,94 @@ export default function SurveySettings() {
           </div>
         </div>
 
-        <button onClick={save} disabled={saving} className="btn-primary">
-          {saving ? 'Saving…' : saved ? 'Saved!' : 'Save settings'}
+        {/* ── Scheduling ── */}
+        <div className="card mb-6">
+          <h2 className="text-sm font-semibold text-gray-800 mb-1">Scheduling</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            Set the date of the first (or next) automatic send. After each send the date
+            auto-advances by your chosen cadence.
+          </p>
+          <div className="flex items-start gap-6">
+            <div className="flex-1">
+              <label className="label flex items-center gap-1.5">
+                <Calendar size={13} className="text-gray-400" /> Next send date
+              </label>
+              <input
+                type="date"
+                className="input"
+                value={nextSend}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={e => setNextSend(e.target.value)}
+              />
+            </div>
+            {lastSent && (
+              <div className="flex-1">
+                <p className="label flex items-center gap-1.5">
+                  <Clock size={13} className="text-gray-400" /> Last sent
+                </p>
+                <p className="text-sm text-gray-700 pt-2.5">
+                  {new Date(lastSent).toLocaleDateString(undefined, {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                  })}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Save ── */}
+        <button onClick={save} disabled={saving} className="btn-primary mb-10">
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save settings'}
         </button>
+
+        {/* ── Send Now ── */}
+        <div className="card border-2 border-dashed border-gray-200">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Send size={18} className="text-brand-600" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold text-gray-900 mb-1">Send survey now</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Instantly email the pulse survey to every member of <strong>{org?.name}</strong>.
+                Use this for a one-off send outside the regular schedule — the next
+                automatic send will still go out on the date you set above.
+              </p>
+              <button
+                onClick={sendNow}
+                disabled={sending}
+                className="btn-primary flex items-center gap-2"
+              >
+                <Send size={14} />
+                {sending ? 'Sending emails…' : 'Send to all members now'}
+              </button>
+
+              {sendResult && (
+                <div className={`mt-3 flex items-center gap-2 text-sm rounded-xl p-3 ${
+                  sendResult.ok
+                    ? 'bg-green-50 text-green-700 border border-green-100'
+                    : 'bg-red-50 text-red-700 border border-red-100'
+                }`}>
+                  {sendResult.ok ? (
+                    <>
+                      <CheckCircle2 size={15} className="flex-shrink-0" />
+                      Survey sent to{' '}
+                      <strong>{sendResult.emails_sent}</strong>{' '}
+                      member{sendResult.emails_sent !== 1 ? 's' : ''}!
+                      Next auto-send scheduled automatically.
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle size={15} className="flex-shrink-0" />
+                      {sendResult.error}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
       </div>
     </Layout>
   )

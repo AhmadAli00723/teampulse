@@ -29,18 +29,18 @@ export function OrgProvider({ children }) {
     load()
   }, [user])
 
+  // Returns a promise so callers can await the refresh before navigating
   function refreshOrg() {
-    if (user) {
-      supabase
-        .from('memberships')
-        .select('*, organizations(*)')
-        .eq('user_id', user.id)
-        .maybeSingle()
-        .then(({ data: mem }) => {
-          setMembership(mem ?? null)
-          setOrg(mem?.organizations ?? null)
-        })
-    }
+    if (!user) return Promise.resolve()
+    return supabase
+      .from('memberships')
+      .select('*, organizations(*)')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data: mem }) => {
+        setMembership(mem ?? null)
+        setOrg(mem?.organizations ?? null)
+      })
   }
 
   return (

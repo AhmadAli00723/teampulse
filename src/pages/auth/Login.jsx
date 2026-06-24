@@ -1,14 +1,17 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { TrendingUp } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 export default function Login() {
-  const navigate = useNavigate()
-  const [email, setEmail]     = useState('')
+  const navigate       = useNavigate()
+  const [searchParams] = useSearchParams()
+  const token          = searchParams.get('token') // invite token, if present
+
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError]     = useState('')
-  const [loading, setLoading] = useState(false)
+  const [error, setError]       = useState('')
+  const [loading, setLoading]   = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -17,7 +20,8 @@ export default function Login() {
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
     if (err) { setError(err.message); return }
-    navigate('/')
+    // If we came from an invite link, go back to accept it
+    navigate(token ? `/accept-invite?token=${token}` : '/')
   }
 
   return (
@@ -32,7 +36,9 @@ export default function Login() {
 
         <div className="card">
           <h1 className="text-lg font-semibold text-gray-900 mb-1">Welcome back</h1>
-          <p className="text-sm text-gray-500 mb-6">Sign in to your account</p>
+          <p className="text-sm text-gray-500 mb-6">
+            {token ? 'Sign in to accept your invitation' : 'Sign in to your account'}
+          </p>
 
           {error && (
             <div className="mb-4 px-3 py-2 bg-red-50 border border-red-100 text-red-700 text-sm rounded-lg">
@@ -64,7 +70,13 @@ export default function Login() {
 
           <p className="mt-4 text-center text-sm text-gray-500">
             No account?{' '}
-            <Link to="/signup" className="text-brand-600 font-medium hover:underline">Sign up</Link>
+            {/* Pass the token along so signup also returns to accept-invite */}
+            <Link
+              to={token ? `/signup?token=${token}` : '/signup'}
+              className="text-brand-600 font-medium hover:underline"
+            >
+              Sign up
+            </Link>
           </p>
         </div>
       </div>

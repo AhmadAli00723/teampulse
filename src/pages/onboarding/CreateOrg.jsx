@@ -37,7 +37,7 @@ export default function CreateOrg() {
     setLoading(false)
     if (rpcErr) { setError(rpcErr.message); return }
     if (!orgId) { setError('Failed to create organization.'); return }
-    refreshOrg()
+    await refreshOrg()
     navigate('/dashboard')
   }
 

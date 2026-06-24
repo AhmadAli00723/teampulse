@@ -3,16 +3,18 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { TrendingUp } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
+import { useOrg } from '../../hooks/useOrg'
 
 export default function AcceptInvite() {
-  const [params]  = useSearchParams()
-  const navigate  = useNavigate()
-  const { user }  = useAuth()
-  const token     = params.get('token')
+  const [params]       = useSearchParams()
+  const navigate       = useNavigate()
+  const { user }       = useAuth()
+  const { refreshOrg } = useOrg()
+  const token          = params.get('token')
 
-  const [invite, setInvite]   = useState(null)
-  const [error, setError]     = useState('')
-  const [loading, setLoading] = useState(true)
+  const [invite, setInvite]       = useState(null)
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(true)
   const [accepting, setAccepting] = useState(false)
 
   useEffect(() => {
@@ -35,12 +37,16 @@ export default function AcceptInvite() {
     if (!user) { navigate(`/signup?token=${token}`); return }
     setAccepting(true)
     const { error: err } = await supabase.rpc('accept_invite', { p_token: token })
-    if (!err) {
-      navigate('/')
-    } else {
+    if (err) {
       setError(err.message)
       setAccepting(false)
+      return
     }
+    // Reload org/membership into context BEFORE navigating so ProtectedRoute passes
+    await refreshOrg()
+    // Send managers/admins to the dashboard, members to their survey
+    const dest = ['admin', 'manager'].includes(invite?.role) ? '/dashboard' : '/surveys/answer'
+    navigate(dest, { replace: true })
   }
 
   if (loading) return (

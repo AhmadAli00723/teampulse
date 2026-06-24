@@ -21,7 +21,8 @@ export default function ProtectedRoute({ children, requiredRole }) {
     const hierarchy = { admin: 3, manager: 2, member: 1 }
     const userLevel = hierarchy[membership.role] ?? 0
     const required  = hierarchy[requiredRole] ?? 0
-    if (userLevel < required) return <Navigate to="/dashboard" replace />
+    // Redirect members away from manager/admin pages without looping
+    if (userLevel < required) return <Navigate to="/surveys/answer" replace />
   }
 
   return children
