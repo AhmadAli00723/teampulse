@@ -62,7 +62,8 @@ export default function AnswerSurvey() {
   async function submitCurrent() {
     const q = questions[current]
     setSubmitting(true)
-    await supabase.from('survey_responses').insert({
+
+    await supabase.from('survey_responses').upsert({
       org_id:        org.id,
       team_id:       membership?.team_id ?? null,
       question_id:   q.id,
@@ -71,7 +72,7 @@ export default function AnswerSurvey() {
       score:         q.type !== 'text' ? score : null,
       text_response: text || null,
       period_start:  periodStart,
-    })
+    }, { onConflict: 'user_id,question_id,period_start' })
     setSubmitting(false)
     setScore(null)
     setText('')
