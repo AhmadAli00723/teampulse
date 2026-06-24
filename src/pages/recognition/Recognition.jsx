@@ -22,7 +22,7 @@ export default function Recognition() {
   useEffect(() => {
     if (!org) return
     Promise.all([
-      supabase.from('recognitions').select('*, giver:giver_id(email), receiver:receiver_id(email)').eq('org_id', org.id).order('created_at', { ascending: false }),
+      supabase.from('recognitions').select('*').eq('org_id', org.id).order('created_at', { ascending: false }),
       supabase.from('memberships').select('user_id, full_name').eq('org_id', org.id),
     ]).then(([{ data: r }, { data: m }]) => {
       setItems(r ?? [])
@@ -34,16 +34,17 @@ export default function Recognition() {
   async function send() {
     if (!form.receiver_id || !form.message) return
     setSaving(true)
-    const { data } = await supabase.from('recognitions').insert({
+    const { data, error } = await supabase.from('recognitions').insert({
       org_id:      org.id,
       giver_id:    user.id,
       receiver_id: form.receiver_id,
       message:     form.message,
       value_tag:   form.value_tag || null,
       public:      true,
-    }).select('*, giver:giver_id(email), receiver:receiver_id(email)').single()
-    setItems(prev => [data, ...prev])
+    }).select('*').single()
     setSaving(false)
+    if (error) { alert(error.message); return }
+    setItems(prev => [data, ...prev])
     setOpen(false)
     setForm({ receiver_id: '', message: '', value_tag: '' })
   }
