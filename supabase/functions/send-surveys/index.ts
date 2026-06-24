@@ -22,7 +22,6 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
   try {
-    // Admin client — bypasses RLS so we can read all members and auth emails
     const admin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -34,43 +33,37 @@ serve(async (req: Request) => {
     const today      = new Date().toISOString().slice(0, 10)
     const APP_URL    = Deno.env.get('APP_URL')     ?? 'http://localhost:5173'
     const RESEND_KEY = Deno.env.get('RESEND_API_KEY')
-    const FROM_EMAIL = Deno.env.get('FROM_EMAIL')  ?? 'TeamPulse <surveys@teampulse.app>'
-
-    // ── 1. Find active cycles that are due ─────────────────────────────────────
-    let q = admin
-      .from('survey_cycles')
-      .select('*, organizations(name)')
-      .eq('active', true)
-
-    // force=true skips the date check (used by "Send now" button in the UI)
-    if (!force) q = (q as any).lte('next_send', today).not('next_send', 'is', null)
-    if (org_id)  q = (q as any).eq('org_id', org_id)
-
-    const { data: cycles, error: cycleErr } = await q
-    if (cycleErr) throw new Error(cycleErr.message)
+    const FROM_EMAIL = Deno.env.get('FROM_EMAIL')  ?? 'TeamPulse <onboarding@resend.dev>'
 
     let totalSent = 0
 
-    for (const cycle of cycles ?? []) {
-      // ── 2. Get all members of the org (or team if team-scoped) ──────────────
-      let mq = admin
-        .from('memberships')
-        .select('user_id, full_name')
-        .eq('org_id', cycle.org_id)
-      if (cycle.team_id) mq = (mq as any).eq('team_id', cycle.team_id)
+    // ── FORCE MODE (Send Now button) ──────────────────────────────────────────
+    // Send directly to all org members — no cycle row required
+    if (force && org_id) {
+      // Get org name
+      const { data: orgRow } = await admin
+        .from('organizations').select('name').eq('id', org_id).single()
+      const orgName = orgRow?.name ?? 'your team'
 
-      const { data: members } = await mq
+      // Get all members of the org
+      const { data: members, error: memErr } = await admin
+        .from('memberships').select('user_id, full_name').eq('org_id', org_id)
 
-      for (const m of members ?? []) {
-        // ── 3. Get the member's email via admin Auth API ─────────────────────
-        const { data: { user } } = await admin.auth.admin.getUserById(m.user_id)
-        if (!user?.email) continue
+      if (memErr) throw new Error('Could not load members: ' + memErr.message)
+      if (!members || members.length === 0) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'No members found in this org. Go to Settings → Members and invite your team first.' }),
+          { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
+        )
+      }
 
-        const firstName  = (m.full_name ?? '').split(' ')[0] || 'there'
-        const orgName    = (cycle as any).organizations?.name ?? 'your team'
-        const surveyLink = `${APP_URL}/surveys/answer`
+      for (const m of members) {
+        const { data: authData } = await admin.auth.admin.getUserById(m.user_id)
+        const email = authData?.user?.email
+        if (!email) continue
 
-        // ── 4. Send the email via Resend ─────────────────────────────────────
+        const firstName = (m.full_name ?? '').split(' ')[0] || 'there'
+
         if (RESEND_KEY) {
           const res = await fetch('https://api.resend.com/emails', {
             method: 'POST',
@@ -80,37 +73,123 @@ serve(async (req: Request) => {
             },
             body: JSON.stringify({
               from:    FROM_EMAIL,
-              to:      user.email,
+              to:      email,
               subject: `📊 Your ${orgName} pulse survey is ready`,
-              html:    buildEmail(firstName, orgName, surveyLink),
+              html:    buildEmail(firstName, orgName, `${APP_URL}/surveys/answer`),
             }),
           })
           if (!res.ok) {
-            console.error(`Resend error for ${user.email}:`, await res.text())
+            const errText = await res.text()
+            console.error(`Resend error for ${email}:`, errText)
             continue
           }
         } else {
-          // No Resend key — log but don't fail (useful for local testing)
-          console.log(`[DRY RUN] Would email ${user.email} �� ${surveyLink}`)
+          console.log(`[DRY RUN — no RESEND_API_KEY set] Would email: ${email}`)
         }
 
-        // ── 5. Log the send (non-fatal — table created in 07_integrations.sql) ─
+        // Log the send
         await admin.from('notification_log').insert({
-          org_id:    cycle.org_id,
-          type:      'survey_send',
-          channel:   'email',
-          recipient: user.email,
-          success:   true,
+          org_id, type: 'survey_send', channel: 'email', recipient: email, success: true,
         }).catch(() => {})
 
         totalSent++
       }
 
-      // ── 6. Advance next_send by cadence and record last_sent ─────────────────
+      // Upsert the survey_cycle so next_send advances (create it if it doesn't exist)
       const next = new Date(today)
-      if (cycle.cadence === 'weekly')   next.setDate(next.getDate() + 7)
+      next.setDate(next.getDate() + 7) // default weekly
+
+      const { data: existingCycle } = await admin
+        .from('survey_cycles').select('id, cadence').eq('org_id', org_id).is('team_id', null).maybeSingle()
+
+      if (existingCycle) {
+        // Advance by the configured cadence
+        const n = new Date(today)
+        if (existingCycle.cadence === 'biweekly') n.setDate(n.getDate() + 14)
+        else if (existingCycle.cadence === 'monthly') n.setDate(n.getDate() + 30)
+        else n.setDate(n.getDate() + 7)
+        await admin.from('survey_cycles').update({
+          next_send: n.toISOString().slice(0, 10),
+          last_sent: today,
+        }).eq('id', existingCycle.id)
+      } else {
+        // No cycle yet — create one with weekly cadence
+        await admin.from('survey_cycles').insert({
+          org_id, active: true, cadence: 'weekly',
+          next_send: next.toISOString().slice(0, 10),
+          last_sent: today,
+        })
+      }
+
+      return new Response(
+        JSON.stringify({ ok: true, cycles_processed: 1, emails_sent: totalSent }),
+        { headers: { ...CORS, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // ── SCHEDULED MODE (pg_cron daily trigger) ────────────────────────────────
+    let q = admin
+      .from('survey_cycles')
+      .select('*, organizations(name)')
+      .eq('active', true)
+      .lte('next_send', today)
+      .not('next_send', 'is', null)
+
+    if (org_id) q = (q as any).eq('org_id', org_id)
+
+    const { data: cycles, error: cycleErr } = await q
+    if (cycleErr) throw new Error(cycleErr.message)
+
+    for (const cycle of cycles ?? []) {
+      let mq = admin
+        .from('memberships').select('user_id, full_name').eq('org_id', cycle.org_id)
+      if (cycle.team_id) mq = (mq as any).eq('team_id', cycle.team_id)
+
+      const { data: members } = await mq
+
+      for (const m of members ?? []) {
+        const { data: authData } = await admin.auth.admin.getUserById(m.user_id)
+        const email = authData?.user?.email
+        if (!email) continue
+
+        const firstName = (m.full_name ?? '').split(' ')[0] || 'there'
+        const orgName   = (cycle as any).organizations?.name ?? 'your team'
+
+        if (RESEND_KEY) {
+          const res = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${RESEND_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from:    FROM_EMAIL,
+              to:      email,
+              subject: `📊 Your ${orgName} pulse survey is ready`,
+              html:    buildEmail(firstName, orgName, `${APP_URL}/surveys/answer`),
+            }),
+          })
+          if (!res.ok) {
+            console.error(`Resend error for ${email}:`, await res.text())
+            continue
+          }
+        } else {
+          console.log(`[DRY RUN] Would email ${email}`)
+        }
+
+        await admin.from('notification_log').insert({
+          org_id: cycle.org_id, type: 'survey_send', channel: 'email',
+          recipient: email, success: true,
+        }).catch(() => {})
+
+        totalSent++
+      }
+
+      // Advance next_send
+      const next = new Date(today)
       if (cycle.cadence === 'biweekly') next.setDate(next.getDate() + 14)
-      if (cycle.cadence === 'monthly')  next.setDate(next.getDate() + 30)
+      else if (cycle.cadence === 'monthly') next.setDate(next.getDate() + 30)
+      else next.setDate(next.getDate() + 7)
 
       await admin.from('survey_cycles').update({
         next_send: next.toISOString().slice(0, 10),
@@ -122,6 +201,7 @@ serve(async (req: Request) => {
       JSON.stringify({ ok: true, cycles_processed: cycles?.length ?? 0, emails_sent: totalSent }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } }
     )
+
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('send-surveys error:', msg)
@@ -132,92 +212,57 @@ serve(async (req: Request) => {
   }
 })
 
-// ─── HTML email template ─────────────────────────────────────────���─────────────
+// ── HTML email template ───────────────────────────────────────────────────────
 function buildEmail(name: string, orgName: string, surveyUrl: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
-</head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:40px 16px;">
     <tr><td align="center">
       <table width="100%" style="max-width:520px;background:white;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);" cellpadding="0" cellspacing="0">
-
-        <!-- Header -->
         <tr>
           <td style="background:#4f46e5;padding:24px 32px;">
-            <span style="font-size:18px;font-weight:700;color:white;letter-spacing:-0.01em;">📊 TeamPulse</span>
+            <span style="font-size:18px;font-weight:700;color:white;">📊 TeamPulse</span>
           </td>
         </tr>
-
-        <!-- Body -->
         <tr>
           <td style="padding:32px;">
-            <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#111827;">
-              Hi ${name} 👋
-            </h1>
+            <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#111827;">Hi ${name} 👋</h1>
             <p style="margin:0 0 8px;font-size:15px;color:#6b7280;line-height:1.7;">
               Your <strong style="color:#111827;">pulse survey</strong> for
               <strong style="color:#111827;">${orgName}</strong> is ready.
             </p>
             <p style="margin:0 0 28px;font-size:15px;color:#6b7280;line-height:1.7;">
-              It takes less than <strong style="color:#4f46e5;">2 minutes</strong> and your
-              answers are <strong style="color:#4f46e5;">completely anonymous</strong> —
-              your manager will never see your individual responses.
+              It takes less than <strong style="color:#4f46e5;">2 minutes</strong> and your answers are
+              <strong style="color:#4f46e5;">completely anonymous</strong>.
             </p>
-
-            <!-- CTA -->
             <table cellpadding="0" cellspacing="0" width="100%">
-              <tr>
-                <td align="center" style="padding-bottom:28px;">
-                  <a href="${surveyUrl}"
-                     style="display:inline-block;background:#4f46e5;color:white;
-                            text-decoration:none;font-size:16px;font-weight:600;
-                            padding:14px 40px;border-radius:10px;letter-spacing:0.01em;">
-                    Take the survey →
-                  </a>
-                </td>
-              </tr>
+              <tr><td align="center" style="padding-bottom:28px;">
+                <a href="${surveyUrl}" style="display:inline-block;background:#4f46e5;color:white;text-decoration:none;font-size:16px;font-weight:600;padding:14px 40px;border-radius:10px;">
+                  Take the survey →
+                </a>
+              </td></tr>
             </table>
-
-            <!-- Trust badges -->
-            <table cellpadding="0" cellspacing="0" width="100%"
-                   style="border-top:1px solid #f3f4f6;padding-top:20px;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="border-top:1px solid #f3f4f6;padding-top:20px;">
               <tr>
-                <td width="33%" align="center">
-                  <p style="margin:0;font-size:22px;">🔒</p>
-                  <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;font-weight:500;">Anonymous</p>
-                </td>
-                <td width="33%" align="center">
-                  <p style="margin:0;font-size:22px;">⏱️</p>
-                  <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;font-weight:500;">Under 2 min</p>
-                </td>
-                <td width="33%" align="center">
-                  <p style="margin:0;font-size:22px;">📈</p>
-                  <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;font-weight:500;">Helps the team</p>
-                </td>
+                <td width="33%" align="center"><p style="margin:0;font-size:22px;">🔒</p><p style="margin:4px 0 0;font-size:11px;color:#9ca3af;font-weight:500;">Anonymous</p></td>
+                <td width="33%" align="center"><p style="margin:0;font-size:22px;">⏱️</p><p style="margin:4px 0 0;font-size:11px;color:#9ca3af;font-weight:500;">Under 2 min</p></td>
+                <td width="33%" align="center"><p style="margin:0;font-size:22px;">📈</p><p style="margin:4px 0 0;font-size:11px;color:#9ca3af;font-weight:500;">Helps the team</p></td>
               </tr>
             </table>
           </td>
         </tr>
-
-        <!-- Footer -->
         <tr>
           <td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #f3f4f6;">
             <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.6;">
-              You're receiving this because you're a member of
-              <strong>${orgName}</strong> on TeamPulse.
-              Results are only shown to managers once 4+ team members have responded.
+              You're receiving this because you're a member of <strong>${orgName}</strong> on TeamPulse.
             </p>
           </td>
         </tr>
-
       </table>
     </td></tr>
   </table>
 </body>
 </html>`
 }
-
