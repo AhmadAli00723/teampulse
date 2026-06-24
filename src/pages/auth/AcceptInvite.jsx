@@ -32,17 +32,10 @@ export default function AcceptInvite() {
   }, [token])
 
   async function accept() {
-    if (!user) { navigate(`/signup?redirect=/accept-invite?token=${token}`); return }
+    if (!user) { navigate(`/signup?token=${token}`); return }
     setAccepting(true)
-    const { error: err } = await supabase.from('memberships').insert({
-      org_id:    invite.org_id,
-      team_id:   invite.team_id,
-      user_id:   user.id,
-      role:      invite.role,
-      full_name: user.user_metadata?.full_name ?? '',
-    })
+    const { error: err } = await supabase.rpc('accept_invite', { p_token: token })
     if (!err) {
-      await supabase.from('invites').update({ accepted: true }).eq('id', invite.id)
       navigate('/')
     } else {
       setError(err.message)
