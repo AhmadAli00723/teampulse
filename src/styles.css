@@ -4,24 +4,90 @@
 
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-white rounded-2xl shadow-sm border border-gray-100 p-6;
+    @apply bg-white rounded-2xl shadow-sm border border-gray-100 p-6
+           dark:bg-gray-900 dark:border-gray-800
+           transition-shadow duration-200 hover:shadow-md;
   }
   .btn-primary {
-    @apply bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-gradient-to-r from-brand-600 to-brand-500
+           hover:from-brand-700 hover:to-brand-600
+           text-white font-medium px-4 py-2 rounded-lg
+           transition-all shadow-sm hover:shadow-md
+           disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
-    @apply bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg border border-gray-200 transition-colors;
+    @apply bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2
+           rounded-lg border border-gray-200 transition-colors
+           dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-700;
   }
   .input {
-    @apply w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent;
+    @apply w-full border border-gray-200 rounded-lg px-3 py-2 text-sm
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+           bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100
+           dark:placeholder-gray-500;
   }
   .label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
+    @apply block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300;
   }
+}
+
+/* ── Dark mode content adapters ──────────────────────────────────────────────
+   Outside @layer so these outrank generated utilities in the cascade.        */
+
+/* Text */
+.dark .text-gray-900 { color: #f1f5f9; }
+.dark .text-gray-800 { color: #e2e8f0; }
+.dark .text-gray-700 { color: #cbd5e1; }
+.dark .text-gray-600 { color: #94a3b8; }
+
+/* Backgrounds */
+.dark .bg-white   { background-color: #111827; }
+.dark .bg-gray-50 { background-color: #0f172a; }
+.dark .bg-gray-100 { background-color: #1f2937; }
+
+/* Borders */
+.dark .border-gray-50  { border-color: #1f2937; }
+.dark .border-gray-100 { border-color: #1f2937; }
+.dark .border-gray-200 { border-color: #374151; }
+
+/* Dividers */
+.dark .divide-gray-50  > :not([hidden]) ~ :not([hidden]) { border-color: #1f2937; }
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1f2937; }
+
+/* Status backgrounds */
+.dark .bg-green-50  { background-color: #052e16; }
+.dark .bg-green-100 { background-color: #14532d; }
+.dark .bg-red-50    { background-color: #450a0a; }
+.dark .bg-yellow-50 { background-color: #422006; }
+.dark .bg-blue-50   { background-color: #0c1a2e; }
+.dark .bg-indigo-50 { background-color: #1e1b4b; }
+.dark .bg-brand-50  { background-color: #1e1b4b; }
+.dark .bg-brand-100 { background-color: #312e81; }
+.dark .bg-pink-100  { background-color: #500724; }
+
+/* Status text */
+.dark .text-green-700  { color: #4ade80; }
+.dark .text-green-600  { color: #34d399; }
+.dark .text-red-700    { color: #f87171; }
+.dark .text-red-500    { color: #f87171; }
+.dark .text-yellow-700 { color: #fbbf24; }
+.dark .text-pink-500   { color: #f472b6; }
+
+/* Brand in dark */
+.dark .text-brand-600 { color: #818cf8; }
+.dark .text-brand-700 { color: #6366f1; }
+.dark .border-brand-300 { border-color: #4338ca; }
+.dark .bg-brand-600 { background-color: #4f46e5; }
+
+/* Native selects not covered by .input */
+.dark select:not(.input) {
+  background-color: #1f2937;
+  color: #e2e8f0;
+  border-color: #374151;
 }

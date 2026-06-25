@@ -2,11 +2,12 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, ClipboardList, MessageSquare, Heart,
   BarChart2, Users, Target, FileText, Settings, LogOut,
-  TrendingUp, UserPlus, Sliders,
+  TrendingUp, UserPlus, Sliders, Sun, Moon,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useOrg } from '../hooks/useOrg'
 import { useAuth } from '../hooks/useAuth'
+import { useTheme } from '../hooks/useTheme'
 
 const NAV = [
   { to: '/dashboard',        label: 'Dashboard',        icon: LayoutDashboard,   roles: ['admin','manager'] },
@@ -26,6 +27,7 @@ export default function Layout({ children }) {
   const navigate = useNavigate()
   const { org, membership } = useOrg()
   const { user } = useAuth()
+  const { dark, toggle } = useTheme()
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -33,24 +35,26 @@ export default function Layout({ children }) {
   }
 
   const visibleNav = NAV.filter(n => n.roles.includes(membership?.role))
+  const initials = (membership?.full_name ?? user?.email ?? '?')[0].toUpperCase()
 
   return (
     <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="w-56 bg-white border-r border-gray-100 flex flex-col fixed inset-y-0 z-10">
+      {/* Sidebar — always dark */}
+      <aside className="w-60 bg-slate-900 flex flex-col fixed inset-y-0 z-10 shadow-2xl">
+
         {/* Logo */}
-        <div className="h-16 flex items-center gap-2 px-5 border-b border-gray-100">
-          <div className="w-7 h-7 bg-brand-600 rounded-lg flex items-center justify-center">
-            <TrendingUp size={14} className="text-white" />
+        <div className="h-16 flex items-center gap-3 px-5 border-b border-white/[0.06]">
+          <div className="w-8 h-8 bg-gradient-to-br from-brand-400 to-brand-700 rounded-xl flex items-center justify-center shadow-lg">
+            <TrendingUp size={15} className="text-white" />
           </div>
-          <span className="font-bold text-gray-900 text-sm tracking-tight">TeamPulse</span>
+          <span className="font-bold text-white tracking-tight text-sm">TeamPulse</span>
         </div>
 
-        {/* Org name */}
+        {/* Workspace */}
         {org && (
-          <div className="px-5 py-3 border-b border-gray-100">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">Organization</p>
-            <p className="text-sm font-medium text-gray-800 truncate mt-0.5">{org.name}</p>
+          <div className="px-5 py-3.5 border-b border-white/[0.06]">
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-0.5">Workspace</p>
+            <p className="text-sm font-semibold text-slate-200 truncate">{org.name}</p>
           </div>
         )}
 
@@ -61,40 +65,54 @@ export default function Layout({ children }) {
               key={to}
               to={to}
               className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
                   isActive
-                    ? 'bg-brand-50 text-brand-700'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    ? 'bg-brand-500/20 text-white'
+                    : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
                 }`
               }
             >
-              <Icon size={16} />
+              <Icon size={15} />
               {label}
             </NavLink>
           ))}
         </nav>
 
         {/* User footer */}
-        <div className="px-3 py-3 border-t border-gray-100">
-          <div className="flex items-center gap-2 px-3 py-2">
-            <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold uppercase">
-              {(membership?.full_name ?? user?.email ?? '?')[0]}
+        <div className="px-3 py-3 border-t border-white/[0.06]">
+          <div className="flex items-center gap-2.5 px-2 py-1.5">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+              {initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-gray-800 truncate">
+              <p className="text-xs font-semibold text-slate-300 truncate leading-tight">
                 {membership?.full_name ?? user?.email}
               </p>
-              <p className="text-xs text-gray-400 capitalize">{membership?.role}</p>
+              <p className="text-[10px] text-slate-500 capitalize">{membership?.role}</p>
             </div>
-            <button onClick={handleLogout} className="text-gray-400 hover:text-gray-600 transition-colors" title="Log out">
-              <LogOut size={14} />
-            </button>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <button
+                onClick={toggle}
+                className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-slate-200 hover:bg-white/10 rounded-lg transition-all"
+                title={dark ? 'Light mode' : 'Dark mode'}
+              >
+                {dark ? <Sun size={13} /> : <Moon size={13} />}
+              </button>
+              <button
+                onClick={handleLogout}
+                className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-slate-200 hover:bg-white/10 rounded-lg transition-all"
+                title="Log out"
+              >
+                <LogOut size={13} />
+              </button>
+            </div>
           </div>
         </div>
+
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 ml-56 min-h-screen">
+      <main className="flex-1 ml-60 min-h-screen">
         {children}
       </main>
     </div>
