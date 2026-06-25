@@ -57,43 +57,82 @@ serve(async (req: Request) => {
         )
       }
 
-      for (const m of members) {
-        const { data: authData } = await admin.auth.admin.getUserById(m.user_id)
-        const email = authData?.user?.email
-        if (!email) continue
+      // Resolve emails for all members in parallel
+      const resolved = await Promise.all(
+        members.map(async (m) => {
+          try {
+            const { data: authData } = await admin.auth.admin.getUserById(m.user_id)
+            const email = authData?.user?.email
+            if (!email) return null
+            return { email, firstName: (m.full_name ?? '').split(' ')[0] || 'there' }
+          } catch (e) {
+            console.error(`getUserById failed for user ${m.user_id}:`, e)
+            return null
+          }
+        })
+      )
 
-        const firstName = (m.full_name ?? '').split(' ')[0] || 'there'
+      const recipients = resolved.filter(Boolean) as { email: string; firstName: string }[]
 
-        if (RESEND_KEY) {
-          const res = await fetch('https://api.resend.com/emails', {
+      if (recipients.length === 0) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Could not resolve email addresses for any members. Ensure all members have confirmed their accounts.' }),
+          { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      if (RESEND_KEY) {
+        // Send all emails in one batch request
+        const batch = recipients.map(({ email, firstName }) => ({
+          from:    FROM_EMAIL,
+          to:      email,
+          subject: `📊 Your ${orgName} pulse survey is ready`,
+          html:    buildEmail(firstName, orgName, `${APP_URL}/surveys/answer`),
+        }))
+
+        try {
+          const res = await fetch('https://api.resend.com/emails/batch', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${RESEND_KEY}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              from:    FROM_EMAIL,
-              to:      email,
-              subject: `📊 Your ${orgName} pulse survey is ready`,
-              html:    buildEmail(firstName, orgName, `${APP_URL}/surveys/answer`),
-            }),
+            body: JSON.stringify(batch),
           })
+
           if (!res.ok) {
             const errText = await res.text()
-            console.error(`Resend error for ${email}:`, errText)
-            continue
+            console.error('Resend batch error:', errText)
+            return new Response(
+              JSON.stringify({ ok: false, error: `Email provider error: ${errText}` }),
+              { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
+            )
           }
-        } else {
+
+          totalSent = recipients.length
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          console.error('Resend batch fetch threw:', msg)
+          return new Response(
+            JSON.stringify({ ok: false, error: `Failed to reach email provider: ${msg}` }),
+            { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
+          )
+        }
+      } else {
+        for (const { email } of recipients) {
           console.log(`[DRY RUN — no RESEND_API_KEY set] Would email: ${email}`)
         }
-
-        // Log the send
-        await admin.from('notification_log').insert({
-          org_id, type: 'survey_send', channel: 'email', recipient: email, success: true,
-        }).catch(() => {})
-
-        totalSent++
+        totalSent = recipients.length
       }
+
+      // Log all sends
+      await Promise.all(
+        recipients.map(({ email }) =>
+          admin.from('notification_log').insert({
+            org_id, type: 'survey_send', channel: 'email', recipient: email, success: true,
+          }).catch(() => {})
+        )
+      )
 
       // Upsert the survey_cycle so next_send advances (create it if it doesn't exist)
       const next = new Date(today)
@@ -147,42 +186,62 @@ serve(async (req: Request) => {
 
       const { data: members } = await mq
 
-      for (const m of members ?? []) {
-        const { data: authData } = await admin.auth.admin.getUserById(m.user_id)
-        const email = authData?.user?.email
-        if (!email) continue
+      const cycleOrgName = (cycle as any).organizations?.name ?? 'your team'
 
-        const firstName = (m.full_name ?? '').split(' ')[0] || 'there'
-        const orgName   = (cycle as any).organizations?.name ?? 'your team'
+      const cycleResolved = await Promise.all(
+        (members ?? []).map(async (m: any) => {
+          try {
+            const { data: authData } = await admin.auth.admin.getUserById(m.user_id)
+            const email = authData?.user?.email
+            if (!email) return null
+            return { email, firstName: (m.full_name ?? '').split(' ')[0] || 'there' }
+          } catch (e) {
+            console.error(`getUserById failed for user ${m.user_id}:`, e)
+            return null
+          }
+        })
+      )
 
-        if (RESEND_KEY) {
-          const res = await fetch('https://api.resend.com/emails', {
+      const cycleRecipients = cycleResolved.filter(Boolean) as { email: string; firstName: string }[]
+
+      if (RESEND_KEY && cycleRecipients.length > 0) {
+        const batch = cycleRecipients.map(({ email, firstName }) => ({
+          from:    FROM_EMAIL,
+          to:      email,
+          subject: `📊 Your ${cycleOrgName} pulse survey is ready`,
+          html:    buildEmail(firstName, cycleOrgName, `${APP_URL}/surveys/answer`),
+        }))
+
+        try {
+          const res = await fetch('https://api.resend.com/emails/batch', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${RESEND_KEY}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              from:    FROM_EMAIL,
-              to:      email,
-              subject: `📊 Your ${orgName} pulse survey is ready`,
-              html:    buildEmail(firstName, orgName, `${APP_URL}/surveys/answer`),
-            }),
+            body: JSON.stringify(batch),
           })
           if (!res.ok) {
-            console.error(`Resend error for ${email}:`, await res.text())
-            continue
+            console.error(`Resend batch error for cycle ${cycle.id}:`, await res.text())
+          } else {
+            totalSent += cycleRecipients.length
+            await Promise.all(
+              cycleRecipients.map(({ email }) =>
+                admin.from('notification_log').insert({
+                  org_id: cycle.org_id, type: 'survey_send', channel: 'email',
+                  recipient: email, success: true,
+                }).catch(() => {})
+              )
+            )
           }
-        } else {
+        } catch (e) {
+          console.error(`Resend batch fetch threw for cycle ${cycle.id}:`, e)
+        }
+      } else if (!RESEND_KEY) {
+        for (const { email } of cycleRecipients) {
           console.log(`[DRY RUN] Would email ${email}`)
         }
-
-        await admin.from('notification_log').insert({
-          org_id: cycle.org_id, type: 'survey_send', channel: 'email',
-          recipient: email, success: true,
-        }).catch(() => {})
-
-        totalSent++
+        totalSent += cycleRecipients.length
       }
 
       // Advance next_send
