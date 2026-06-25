@@ -15,6 +15,7 @@ export default function SurveySettings() {
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
   const [saved, setSaved]       = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [sending, setSending]   = useState(false)
   const [sendResult, setSendResult] = useState(null)
 
@@ -42,15 +43,19 @@ export default function SurveySettings() {
   }
 
   async function save() {
+    if (metrics.length === 0) { setSaveError('Select at least one metric.'); return }
     setSaving(true)
+    setSaveError('')
     const payload = { cadence, metrics, active: true, next_send: nextSend || null }
     if (cycle) {
-      await supabase.from('survey_cycles').update(payload).eq('id', cycle.id)
+      const { error } = await supabase.from('survey_cycles').update(payload).eq('id', cycle.id)
+      if (error) { setSaveError(error.message); setSaving(false); return }
     } else {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('survey_cycles')
         .insert({ org_id: org.id, ...payload })
         .select().single()
+      if (error) { setSaveError(error.message); setSaving(false); return }
       setCycle(data)
     }
     setSaving(false)
@@ -66,7 +71,7 @@ export default function SurveySettings() {
     })
     setSending(false)
     if (error) {
-      setSendResult({ ok: false, error: error.message })
+      setSendResult({ ok: false, error: data?.error ?? error.message })
     } else {
       setSendResult(data)
       // Refresh cycle to get updated next_send / last_sent from the server
@@ -165,6 +170,11 @@ export default function SurveySettings() {
         </div>
 
         {/* ── Save ── */}
+        {saveError && (
+          <p className="text-sm text-red-600 mb-3 flex items-center gap-1.5">
+            <AlertCircle size={14} /> {saveError}
+          </p>
+        )}
         <button onClick={save} disabled={saving} className="btn-primary mb-10">
           {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save settings'}
         </button>
