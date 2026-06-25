@@ -11,9 +11,15 @@ function ParticleCanvas() {
     const ctx = canvas.getContext('2d')
     let animId
 
-    const PARTICLE_COUNT = 70
+    const PARTICLE_COUNT = 80
     const CONNECTION_DIST = 130
-    const SPEED = 0.4
+    const CURSOR_DIST     = 160  // lines snap to cursor within this radius
+    const REPEL_DIST      = 100  // particles flee cursor within this radius
+    const REPEL_FORCE     = 0.6
+    const DAMPING         = 0.96 // velocity decay each frame
+    const BASE_SPEED      = 0.4
+
+    const mouse = { x: -9999, y: -9999 }
 
     function resize() {
       canvas.width  = window.innerWidth
@@ -22,26 +28,72 @@ function ParticleCanvas() {
     resize()
     window.addEventListener('resize', resize)
 
+    function onMove(e) {
+      mouse.x = e.clientX
+      mouse.y = e.clientY
+    }
+    function onLeave() {
+      mouse.x = -9999
+      mouse.y = -9999
+    }
+    function onClick(e) {
+      // Burst: kick all particles within REPEL_DIST * 2 away from click
+      for (const p of particles) {
+        const dx = p.x - e.clientX
+        const dy = p.y - e.clientY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < REPEL_DIST * 2 && dist > 0) {
+          const force = (1 - dist / (REPEL_DIST * 2)) * 5
+          p.vx += (dx / dist) * force
+          p.vy += (dy / dist) * force
+        }
+      }
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseleave', onLeave)
+    window.addEventListener('click', onClick)
+
     const particles = Array.from({ length: PARTICLE_COUNT }, () => ({
       x:  Math.random() * canvas.width,
       y:  Math.random() * canvas.height,
-      vx: (Math.random() - 0.5) * SPEED,
-      vy: (Math.random() - 0.5) * SPEED,
+      vx: (Math.random() - 0.5) * BASE_SPEED,
+      vy: (Math.random() - 0.5) * BASE_SPEED,
       r:  Math.random() * 2 + 1.2,
     }))
 
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // move
+      // move + repel from cursor
       for (const p of particles) {
+        const mdx = p.x - mouse.x
+        const mdy = p.y - mouse.y
+        const mDist = Math.sqrt(mdx * mdx + mdy * mdy)
+
+        if (mDist < REPEL_DIST && mDist > 0) {
+          const force = (1 - mDist / REPEL_DIST) * REPEL_FORCE
+          p.vx += (mdx / mDist) * force
+          p.vy += (mdy / mDist) * force
+        }
+
+        p.vx *= DAMPING
+        p.vy *= DAMPING
+
+        // Keep a minimum drift so particles don't fully stop
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy)
+        if (speed < BASE_SPEED * 0.3) {
+          p.vx += (Math.random() - 0.5) * 0.05
+          p.vy += (Math.random() - 0.5) * 0.05
+        }
+
         p.x += p.vx
         p.y += p.vy
         if (p.x < 0 || p.x > canvas.width)  p.vx *= -1
         if (p.y < 0 || p.y > canvas.height) p.vy *= -1
       }
 
-      // connections
+      // particle–particle connections
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
           const dx = particles[i].x - particles[j].x
@@ -58,11 +110,46 @@ function ParticleCanvas() {
         }
       }
 
-      // dots
+      // cursor → particle connections (bright lines to nearby particles)
       for (const p of particles) {
+        const dx = p.x - mouse.x
+        const dy = p.y - mouse.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < CURSOR_DIST) {
+          const alpha = 0.55 * (1 - dist / CURSOR_DIST)
+          ctx.beginPath()
+          ctx.strokeStyle = `rgba(129,140,248,${alpha})`
+          ctx.lineWidth = 1.2
+          ctx.moveTo(mouse.x, mouse.y)
+          ctx.lineTo(p.x, p.y)
+          ctx.stroke()
+        }
+      }
+
+      // cursor glow dot
+      if (mouse.x > 0) {
+        const grd = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 28)
+        grd.addColorStop(0,   'rgba(129,140,248,0.22)')
+        grd.addColorStop(1,   'rgba(129,140,248,0)')
         ctx.beginPath()
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
-        ctx.fillStyle = 'rgba(99,102,241,0.45)'
+        ctx.arc(mouse.x, mouse.y, 28, 0, Math.PI * 2)
+        ctx.fillStyle = grd
+        ctx.fill()
+      }
+
+      // dots — particles near cursor glow brighter and slightly larger
+      for (const p of particles) {
+        const dx   = p.x - mouse.x
+        const dy   = p.y - mouse.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const near = dist < CURSOR_DIST
+        const t    = near ? (1 - dist / CURSOR_DIST) : 0
+
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, p.r + t * 1.8, 0, Math.PI * 2)
+        ctx.fillStyle = near
+          ? `rgba(129,140,248,${0.55 + t * 0.45})`
+          : 'rgba(99,102,241,0.45)'
         ctx.fill()
       }
 
@@ -73,6 +160,9 @@ function ParticleCanvas() {
     return () => {
       cancelAnimationFrame(animId)
       window.removeEventListener('resize', resize)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseleave', onLeave)
+      window.removeEventListener('click', onClick)
     }
   }, [])
 

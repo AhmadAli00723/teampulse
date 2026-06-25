@@ -81,58 +81,56 @@ serve(async (req: Request) => {
         )
       }
 
-      if (RESEND_KEY) {
-        // Send all emails in one batch request
-        const batch = recipients.map(({ email, firstName }) => ({
-          from:    FROM_EMAIL,
-          to:      email,
-          subject: `📊 Your ${orgName} pulse survey is ready`,
-          html:    buildEmail(firstName, orgName, `${APP_URL}/surveys/answer`),
-        }))
+      const skipped: string[] = []
+
+      for (const { email, firstName } of recipients) {
+        if (!RESEND_KEY) {
+          console.log(`[DRY RUN — no RESEND_API_KEY set] Would email: ${email}`)
+          totalSent++
+          continue
+        }
 
         try {
-          const res = await fetch('https://api.resend.com/emails/batch', {
+          const res = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${RESEND_KEY}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(batch),
+            body: JSON.stringify({
+              from:    FROM_EMAIL,
+              to:      email,
+              subject: `📊 Your ${orgName} pulse survey is ready`,
+              html:    buildEmail(firstName, orgName, `${APP_URL}/surveys/answer`),
+            }),
           })
 
           if (!res.ok) {
-            const errText = await res.text()
-            console.error('Resend batch error:', errText)
-            return new Response(
-              JSON.stringify({ ok: false, error: `Email provider error: ${errText}` }),
-              { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
-            )
+            const errJson = await res.json().catch(() => ({ message: 'unknown error' }))
+            console.error(`Resend rejected ${email}:`, JSON.stringify(errJson))
+            skipped.push(email)
+            continue
           }
 
-          totalSent = recipients.length
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          console.error('Resend batch fetch threw:', msg)
-          return new Response(
-            JSON.stringify({ ok: false, error: `Failed to reach email provider: ${msg}` }),
-            { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
-          )
-        }
-      } else {
-        for (const { email } of recipients) {
-          console.log(`[DRY RUN — no RESEND_API_KEY set] Would email: ${email}`)
-        }
-        totalSent = recipients.length
-      }
-
-      // Log all sends
-      await Promise.all(
-        recipients.map(({ email }) =>
-          admin.from('notification_log').insert({
+          await admin.from('notification_log').insert({
             org_id, type: 'survey_send', channel: 'email', recipient: email, success: true,
           }).catch(() => {})
+          totalSent++
+        } catch (e) {
+          console.error(`Resend fetch threw for ${email}:`, e)
+          skipped.push(email)
+        }
+      }
+
+      if (totalSent === 0 && skipped.length > 0) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: `All ${skipped.length} email(s) were rejected by the email provider. On Resend's free plan you can only send to your own verified email address — upgrade your plan or verify a domain at resend.com/domains to send to everyone.`,
+          }),
+          { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
         )
-      )
+      }
 
       // Upsert the survey_cycle so next_send advances (create it if it doesn't exist)
       const next = new Date(today)
@@ -161,7 +159,12 @@ serve(async (req: Request) => {
       }
 
       return new Response(
-        JSON.stringify({ ok: true, cycles_processed: 1, emails_sent: totalSent }),
+        JSON.stringify({
+          ok: true,
+          cycles_processed: 1,
+          emails_sent: totalSent,
+          ...(skipped.length > 0 && { skipped: skipped.length, skipped_note: 'Some emails were rejected — verify a domain at resend.com/domains to reach all members.' }),
+        }),
         { headers: { ...CORS, 'Content-Type': 'application/json' } }
       )
     }

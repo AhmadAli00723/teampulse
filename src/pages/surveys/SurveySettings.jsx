@@ -208,13 +208,18 @@ export default function SurveySettings() {
                     : 'bg-red-50 text-red-700 border border-red-100'
                 }`}>
                   {sendResult.ok ? (
-                    <>
-                      <CheckCircle2 size={15} className="flex-shrink-0" />
-                      Survey sent to{' '}
-                      <strong>{sendResult.emails_sent}</strong>{' '}
-                      member{sendResult.emails_sent !== 1 ? 's' : ''}!
-                      Next auto-send scheduled automatically.
-                    </>
+                    <div className="flex flex-col gap-1">
+                      <span className="flex items-center gap-2">
+                        <CheckCircle2 size={15} className="flex-shrink-0" />
+                        Survey sent to <strong>{sendResult.emails_sent}</strong>{' '}
+                        member{sendResult.emails_sent !== 1 ? 's' : ''}!
+                      </span>
+                      {sendResult.skipped > 0 && (
+                        <span className="text-yellow-700 text-xs">
+                          ⚠ {sendResult.skipped} recipient{sendResult.skipped !== 1 ? 's' : ''} skipped — {sendResult.skipped_note}
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     <>
                       <AlertCircle size={15} className="flex-shrink-0" />
