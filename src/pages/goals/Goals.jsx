@@ -25,6 +25,7 @@ export default function Goals() {
   const [open, setOpen]       = useState(false)
   const [form, setForm]       = useState({ title: '', description: '', due_date: '', status: 'on_track' })
   const [saving, setSaving]   = useState(false)
+  const [krForm, setKrForm]   = useState({})  // { [goalId]: { title, target, unit } }
 
   useEffect(() => {
     if (!org) return
@@ -57,6 +58,21 @@ export default function Goals() {
     setSaving(false)
     setOpen(false)
     setForm({ title: '', description: '', due_date: '', status: 'on_track' })
+  }
+
+  async function addKr(goalId) {
+    const draft = krForm[goalId]
+    if (!draft?.title?.trim()) return
+    const { data, error } = await supabase.from('key_results').insert({
+      goal_id: goalId,
+      title:   draft.title,
+      target:  draft.target ? parseFloat(draft.target) : null,
+      current: 0,
+      unit:    draft.unit || null,
+    }).select().single()
+    if (error) { alert(error.message); return }
+    setKrs(prev => ({ ...prev, [goalId]: [...(prev[goalId] ?? []), data] }))
+    setKrForm(prev => ({ ...prev, [goalId]: { title: '', target: '', unit: '' } }))
   }
 
   async function updateKr(kr, field, value) {
@@ -126,6 +142,32 @@ export default function Goals() {
                               <span className="text-xs text-gray-400">/ {kr.target} {kr.unit}</span>
                             </div>
                           ))}
+
+                          {/* Add a key result */}
+                          <div className="flex items-center gap-2 pt-2 mt-1 border-t border-gray-100">
+                            <input
+                              className="flex-1 text-xs border border-gray-200 rounded px-1.5 py-1"
+                              placeholder="New key result…"
+                              value={krForm[goal.id]?.title ?? ''}
+                              onChange={e => setKrForm(p => ({ ...p, [goal.id]: { ...p[goal.id], title: e.target.value } }))}
+                              onKeyDown={e => e.key === 'Enter' && addKr(goal.id)}
+                            />
+                            <input
+                              type="number" className="w-14 text-xs border border-gray-200 rounded px-1.5 py-1"
+                              placeholder="target"
+                              value={krForm[goal.id]?.target ?? ''}
+                              onChange={e => setKrForm(p => ({ ...p, [goal.id]: { ...p[goal.id], target: e.target.value } }))}
+                            />
+                            <input
+                              className="w-14 text-xs border border-gray-200 rounded px-1.5 py-1"
+                              placeholder="unit"
+                              value={krForm[goal.id]?.unit ?? ''}
+                              onChange={e => setKrForm(p => ({ ...p, [goal.id]: { ...p[goal.id], unit: e.target.value } }))}
+                            />
+                            <button onClick={() => addKr(goal.id)} className="text-brand-600 hover:text-brand-700 flex-shrink-0">
+                              <Plus size={14} />
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -160,6 +202,7 @@ export default function Goals() {
                   <option value="on_track">On track</option>
                   <option value="at_risk">At risk</option>
                   <option value="off_track">Off track</option>
+                  <option value="complete">Complete</option>
                 </select>
               </div>
             </div>

@@ -27,6 +27,16 @@ export default function AnswerSurvey() {
     async function load() {
       setLoading(true)
 
+      // Load active survey cycle to know which metrics to include
+      const { data: cycle } = await supabase
+        .from('survey_cycles')
+        .select('metrics, active')
+        .eq('org_id', org.id)
+        .is('team_id', null)
+        .maybeSingle()
+
+      const activeMetrics = cycle?.active && cycle?.metrics?.length ? new Set(cycle.metrics) : null
+
       // Check already answered this week
       const { data: existing } = await supabase
         .from('survey_responses')
@@ -44,10 +54,13 @@ export default function AnswerSurvey() {
         .select('*')
         .or(`org_id.eq.${org.id},is_builtin.eq.true`)
 
-      // One question per metric, not yet answered
+      // One question per metric, not yet answered, filtered to active cycle metrics
+      // eNPS is a standing metric — it isn't part of the configurable
+      // ENGAGEMENT_METRICS set, so it must always be served regardless of the cycle.
       const seen = new Set()
       const filtered = (qs ?? []).filter(q => {
         if (answeredSet.has(q.id)) return false
+        if (activeMetrics && q.metric_id !== 'enps' && !activeMetrics.has(q.metric_id)) return false
         if (seen.has(q.metric_id)) return false
         seen.add(q.metric_id)
         return true
@@ -103,8 +116,9 @@ export default function AnswerSurvey() {
   if (questions.length === 0) {
     return (
       <Layout>
-        <div className="flex flex-col items-center justify-center h-full py-24">
-          <p className="text-gray-500">No survey questions available right now.</p>
+        <div className="flex flex-col items-center justify-center h-full py-24 text-center">
+          <p className="text-gray-700 font-medium mb-1">No survey available right now.</p>
+          <p className="text-gray-400 text-sm">Your manager hasn't activated a survey cycle yet. Check back later.</p>
         </div>
       </Layout>
     )

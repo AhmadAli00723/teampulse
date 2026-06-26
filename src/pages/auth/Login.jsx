@@ -177,7 +177,8 @@ function ParticleCanvas() {
 export default function Login() {
   const navigate       = useNavigate()
   const [searchParams] = useSearchParams()
-  const token          = searchParams.get('token') // invite token, if present
+  const token          = searchParams.get('token')    // invite token, if present
+  const redirect       = searchParams.get('redirect') // where to go after login (e.g. /surveys/answer)
 
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
@@ -191,8 +192,9 @@ export default function Login() {
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
     if (err) { setError(err.message); return }
-    // If we came from an invite link, go back to accept it
-    navigate(token ? `/accept-invite?token=${token}` : '/')
+    // Priority: accept an invite → return to the page they were sent to → home
+    if (token) navigate(`/accept-invite?token=${token}`)
+    else navigate(redirect || '/')
   }
 
   return (

@@ -68,10 +68,14 @@ export default function Dashboard() {
     ? (overallScores.reduce((a, b) => a + parseFloat(b.avg_score), 0) / overallScores.length).toFixed(1)
     : null
 
-  const trendByMetric = {}
-  trend.forEach(row => {
-    if (!trendByMetric[row.metric_id]) trendByMetric[row.metric_id] = []
-    trendByMetric[row.metric_id].push({ date: row.period_start, score: row.avg_score })
+  // Pivot trend rows ({period_start, metric_id, avg_score}) into one row per week
+  // with a column per metric, so all lines share a single x-axis.
+  const periods = [...new Set(trend.map(r => r.period_start))].sort()
+  const metricsInTrend = new Set(trend.map(r => r.metric_id))
+  const trendData = periods.map(p => {
+    const row = { period_start: p }
+    trend.filter(r => r.period_start === p).forEach(r => { row[r.metric_id] = r.avg_score })
+    return row
   })
 
   return (
@@ -131,18 +135,18 @@ export default function Dashboard() {
         </div>
 
         {/* Trend lines */}
-        {Object.keys(trendByMetric).length > 0 && (
+        {trendData.length > 0 && (
           <div className="card">
             <p className="text-sm font-semibold text-gray-800 mb-4">Score Trends (12 weeks)</p>
             <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={trend}>
+              <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="period_start" tick={{ fontSize: 11 }} tickFormatter={d => d?.slice(5)} />
                 <YAxis domain={[0, 10]} tick={{ fontSize: 11 }} />
                 <Tooltip />
                 {ENGAGEMENT_METRICS.map(m => (
-                  trendByMetric[m.id] && (
-                    <Line key={m.id} dataKey="score" data={trendByMetric[m.id]}
+                  metricsInTrend.has(m.id) && (
+                    <Line key={m.id} dataKey={m.id} connectNulls
                       stroke={m.color} dot={false} strokeWidth={2} name={m.label} />
                   )
                 ))}

@@ -12,7 +12,8 @@ export default function Polls() {
   const { org, membership } = useOrg()
   const { user } = useAuth()
   const [polls, setPolls]     = useState([])
-  const [votes, setVotes]     = useState({})
+  const [votes, setVotes]     = useState({})   // { [pollId]: option_idx } — the current user's vote
+  const [tallies, setTallies] = useState({})   // { [pollId]: { [option_idx]: count } }
   const [loading, setLoading] = useState(true)
   const [open, setOpen]       = useState(false)
   const [form, setForm]       = useState({ question: '', options: ['', ''] })
@@ -22,22 +23,40 @@ export default function Polls() {
 
   useEffect(() => {
     if (!org) return
-    Promise.all([
-      supabase.from('polls').select('*').eq('org_id', org.id).order('created_at', { ascending: false }),
-      supabase.from('poll_votes').select('poll_id, option_idx').eq('user_id', user.id),
-    ]).then(([{ data: p }, { data: v }]) => {
-      setPolls(p ?? [])
+    async function load() {
+      const { data: p } = await supabase
+        .from('polls').select('*').eq('org_id', org.id).order('created_at', { ascending: false })
+      const pollIds = (p ?? []).map(x => x.id)
+      const { data: allVotes } = pollIds.length
+        ? await supabase.from('poll_votes').select('poll_id, option_idx, user_id').in('poll_id', pollIds)
+        : { data: [] }
+
       const vmap = {}
-      ;(v ?? []).forEach(vote => { vmap[vote.poll_id] = vote.option_idx })
+      const tmap = {}
+      ;(allVotes ?? []).forEach(v => {
+        if (v.user_id === user.id) vmap[v.poll_id] = v.option_idx
+        tmap[v.poll_id] = tmap[v.poll_id] ?? {}
+        tmap[v.poll_id][v.option_idx] = (tmap[v.poll_id][v.option_idx] ?? 0) + 1
+      })
+
+      setPolls(p ?? [])
       setVotes(vmap)
+      setTallies(tmap)
       setLoading(false)
-    })
+    }
+    load()
   }, [org, user])
 
   async function vote(pollId, optionIdx) {
     if (votes[pollId] !== undefined) return
     const { error } = await supabase.from('poll_votes').insert({ poll_id: pollId, user_id: user.id, option_idx: optionIdx })
-    if (!error) setVotes(prev => ({ ...prev, [pollId]: optionIdx }))
+    if (!error) {
+      setVotes(prev => ({ ...prev, [pollId]: optionIdx }))
+      setTallies(prev => ({
+        ...prev,
+        [pollId]: { ...(prev[pollId] ?? {}), [optionIdx]: ((prev[pollId]?.[optionIdx]) ?? 0) + 1 },
+      }))
+    }
   }
 
   async function createPoll() {
@@ -77,27 +96,45 @@ export default function Polls() {
             {polls.map(poll => {
               const userVote = votes[poll.id]
               const hasVoted = userVote !== undefined
+              const showResults = hasVoted || canCreate
+              const tally = tallies[poll.id] ?? {}
+              const totalVotes = Object.values(tally).reduce((a, b) => a + b, 0)
               return (
                 <div key={poll.id} className="card">
                   <p className="text-sm font-semibold text-gray-900 mb-4">{poll.question}</p>
                   <div className="space-y-2">
                     {poll.options.map((opt, idx) => {
                       const isSelected = userVote === idx
+                      const count = tally[idx] ?? 0
+                      const pct = totalVotes ? Math.round((count / totalVotes) * 100) : 0
                       return (
                         <button
                           key={idx}
                           onClick={() => vote(poll.id, idx)}
                           disabled={hasVoted}
-                          className={`w-full text-left px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
-                            isSelected ? 'bg-brand-600 text-white border-brand-600'
-                            : hasVoted ? 'border-gray-100 text-gray-400 cursor-default'
+                          className={`relative w-full text-left px-4 py-2.5 rounded-xl border text-sm font-medium overflow-hidden transition-all ${
+                            isSelected ? 'border-brand-600 text-gray-900'
+                            : hasVoted ? 'border-gray-100 text-gray-600 cursor-default'
                             : 'border-gray-200 text-gray-700 hover:border-brand-400'
                           }`}
-                        >{opt}</button>
+                        >
+                          {showResults && (
+                            <span
+                              className={`absolute inset-y-0 left-0 ${isSelected ? 'bg-brand-100' : 'bg-gray-100'}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          )}
+                          <span className="relative flex items-center justify-between">
+                            <span>{opt}</span>
+                            {showResults && <span className="text-xs text-gray-500">{pct}% · {count}</span>}
+                          </span>
+                        </button>
                       )
                     })}
                   </div>
-                  {!hasVoted && <p className="text-xs text-gray-400 mt-3">Click an option to vote</p>}
+                  {!hasVoted
+                    ? <p className="text-xs text-gray-400 mt-3">Click an option to vote</p>
+                    : <p className="text-xs text-gray-400 mt-3">{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</p>}
                 </div>
               )
             })}

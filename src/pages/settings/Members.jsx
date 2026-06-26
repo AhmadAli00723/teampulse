@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Users, Mail, Plus, Copy, Clock, Check } from 'lucide-react'
+import { Users, Mail, Plus, Copy, Clock, Check, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useOrg } from '../../hooks/useOrg'
 import { useAuth } from '../../hooks/useAuth'
@@ -82,8 +82,36 @@ export default function Members() {
   }
 
   async function updateRole(memberId, newRole) {
-    await supabase.from('memberships').update({ role: newRole }).eq('id', memberId)
+    const target = members.find(m => m.id === memberId)
+    // Guard: never demote the last remaining admin.
+    if (target?.role === 'admin' && newRole !== 'admin') {
+      const adminCount = members.filter(m => m.role === 'admin').length
+      if (adminCount <= 1) {
+        alert('This is the only admin. Promote someone else to admin before changing this role.')
+        return
+      }
+    }
+    const { error } = await supabase.from('memberships').update({ role: newRole }).eq('id', memberId)
+    if (error) { alert(error.message); return }
     setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m))
+  }
+
+  async function removeMember(member) {
+    if (member.role === 'admin' && members.filter(m => m.role === 'admin').length <= 1) {
+      alert('You cannot remove the only admin.')
+      return
+    }
+    if (!confirm(`Remove ${member.full_name || 'this member'} from ${org.name}? They will lose access.`)) return
+    const { error } = await supabase.from('memberships').delete().eq('id', member.id)
+    if (error) { alert(error.message); return }
+    setMembers(prev => prev.filter(m => m.id !== member.id))
+  }
+
+  async function revokeInvite(inviteId) {
+    if (!confirm('Revoke this pending invite? The link will stop working.')) return
+    const { error } = await supabase.from('invites').delete().eq('id', inviteId)
+    if (error) { alert(error.message); return }
+    setPendingInvites(prev => prev.filter(i => i.id !== inviteId))
   }
 
   if (loading) return <Layout><div className="flex items-center justify-center h-64"><Spinner /></div></Layout>
@@ -128,6 +156,15 @@ export default function Members() {
                 >
                   {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
+                {m.user_id !== user.id && (
+                  <button
+                    onClick={() => removeMember(m)}
+                    title="Remove member"
+                    className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -165,6 +202,12 @@ export default function Members() {
                         className="text-xs text-gray-500 hover:underline flex items-center gap-1"
                       >
                         <Copy size={12} /> Copy
+                      </button>
+                      <button
+                        onClick={() => revokeInvite(inv.id)}
+                        className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1"
+                      >
+                        <Trash2 size={12} /> Revoke
                       </button>
                     </div>
                   </div>

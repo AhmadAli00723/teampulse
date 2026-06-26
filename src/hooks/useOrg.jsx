@@ -15,13 +15,15 @@ export function OrgProvider({ children }) {
 
     async function load() {
       setLoading(true)
-      const { data: mem } = await supabase
+      const { data: mems } = await supabase
         .from('memberships')
         .select('*, organizations(*)')
         .eq('user_id', user.id)
-        .maybeSingle()
+        .order('joined_at')
 
-      setMembership(mem ?? null)
+      // A user may belong to more than one org; default to the earliest membership.
+      const mem = mems?.[0] ?? null
+      setMembership(mem)
       setOrg(mem?.organizations ?? null)
       setLoading(false)
     }
@@ -36,9 +38,10 @@ export function OrgProvider({ children }) {
       .from('memberships')
       .select('*, organizations(*)')
       .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data: mem }) => {
-        setMembership(mem ?? null)
+      .order('joined_at')
+      .then(({ data: mems }) => {
+        const mem = mems?.[0] ?? null
+        setMembership(mem)
         setOrg(mem?.organizations ?? null)
       })
   }
